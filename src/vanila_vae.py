@@ -1,18 +1,23 @@
 from __future__ import print_function
+import os
 import argparse
 import torch
 import torch.utils.data
 import torch.nn as nn
+import numpy as np
 import torch.optim as optim
-from torch.autograd import Variable
 import torchvision
-from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 import time
+import pickle
+from PIL import Image
+from torch.autograd import Variable
+from torchvision import datasets, transforms
 from glob import glob
 from util import *
-import numpy as np
-from PIL import Image
+
+from simple_test import TestSimple
+from transit_test import Transition
 
 parser = argparse.ArgumentParser(description='PyTorch VAE')
 parser.add_argument('--batch-size', type=int, default=128, metavar='N',
@@ -24,10 +29,13 @@ parser.add_argument('--no-cuda', action='store_true', default=False,
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=1, metavar='N',
-                    help='how many batches to wait before logging training status')
+                    help='n batches to wait before logging training status')
+parser.add_argument('--test', type=int, default=0,
+                    help='type of test: 0 = simple, 1 = transition')
 
 args = parser.parse_args()
 args.cuda = not args.no_cuda and torch.cuda.is_available()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 torch.manual_seed(args.seed)
 if args.cuda:
@@ -43,10 +51,19 @@ def load_batch(batch_idx, istrain):
         template = '../data/train/%s.jpg'
     else:
         template = '../data/test/%s.jpg'
-    l = [str(batch_idx*128 + i).zfill(6) for i in range(128)]
+    #l = [str(batch_idx*128 + i).zfill(6) for i in range(128)]
+    l = []
+    images_path = '../data/test'
+    name_list = os.listdir(images_path)
+    for i in range(len(name_list)):
+        if i >= 0 and i < 128:
+            idx = (128*batch_idx)+i
+            name_list[idx]
+            l.append(os.path.join(images_path, name_list[idx]))
+    
     data = []
-    for idx in l:
-        img = Image.open(template%idx)
+    for im in l:
+        img = Image.open(im)
         data.append(np.array(img))
     data = [totensor(i) for i in data]
     return torch.stack(data, dim=0)
@@ -198,23 +215,28 @@ def train(epoch):
 def test(epoch):
     model.eval()
     test_loss = 0
-    for batch_idx in test_loader:
-        data = load_batch(batch_idx, False)
-        data = Variable(data, volatile=True)
-        if args.cuda:
-            data = data.cuda()
-        recon_batch, mu, logvar = model(data)
-        test_loss += loss_function(recon_batch, data, mu, logvar).data[0]
 
-        torchvision.utils.save_image(data.data, '../imgs/Epoch_{}_data.jpg'.format(epoch), nrow=8, padding=2)
-        torchvision.utils.save_image(recon_batch.data, '../imgs/Epoch_{}_recon.jpg'.format(epoch), nrow=8, padding=2)
+    with torch.no_grad():
+        for batch_idx in test_loader:
+            data = load_batch(batch_idx, False)
+            data = Variable(data)
+            if args.cuda:
+                data = data.cuda()
+            recon_batch, mu, logvar = model(data)
+            test_loss += loss_function(recon_batch, data, mu, logvar).item()
 
-    test_loss /= (len(test_loader)*128)
-    print('====> Test set loss: {:.4f}'.format(test_loss))
-    return test_loss
+            torchvision.utils.save_image(data.data, \
+                f'../imgs/Epoch_{epoch}_data.jpg', nrow=8, padding=2)
+            torchvision.utils.save_image(recon_batch.data, \
+                f'../imgs/Epoch_{epoch}_recon.jpg', nrow=8, padding=2)
+
+        test_loss /= (len(test_loader)*128)
+        print('====> Test set loss: {:.4f}'.format(test_loss))
+        return test_loss
 
 
-def perform_latent_space_arithmatics(items): # input is list of tuples of 3 [(a1,b1,c1), (a2,b2,c2)]
+def perform_latent_space_arithmatics(items):
+    # input is list of tuples of 3 [(a1,b1,c1), (a2,b2,c2)]
     load_last_model()
     model.eval()
     data = [im for item in items for im in item]
@@ -243,33 +265,37 @@ def perform_latent_space_arithmatics(items): # input is list of tuples of 3 [(a1
     torchvision.utils.save_image(result.data, '../imgs/vec_math.jpg', nrow=3+numsample, padding=2)
 
 
-def latent_space_transition(items): # input is list of tuples of  (a,b)
+def latent_space_transition(items): 
+    # input is a list of tuples (a,b) where a column of 
     load_last_model()
     model.eval()
-    data = [im for item in items for im in item[:-1]]
+    data = [im for item in items for im in item]
     data = [totensor(i) for i in data]
     data = torch.stack(data, dim=0)
-    data = Variable(data, volatile=True)
-    if args.cuda:
-        data = data.cuda()
-    z = model.get_latent_var(data.view(-1, model.nc, model.ndf, model.ngf))
-    it = iter(z.split(1))
-    z = zip(it, it)
-    zs = []
-    numsample = 11
-    for i,j in z:
-        for factor in np.linspace(0,1,numsample):
-            zs.append(i+(j-i)*factor)
-    z = torch.cat(zs, 0)
-    recon = model.decode(z)
+    print(data.shape)
 
-    it1 = iter(data.split(1))
-    it2 = [iter(recon.split(1))]*numsample
-    result = zip(it1, it1, *it2)
-    result = [im for item in result for im in item]
+    with torch.no_grad():
+        data = Variable(data)
+        if args.cuda:
+            data = data.cuda()
+        z = model.get_latent_var(data.view(-1, model.nc, model.ndf, model.ngf))
+        it = iter(z.split(1))
+        z = zip(it, it)
+        zs = []
+        numsample = 11
+        for i,j in z:
+            for factor in np.linspace(0,1,numsample):
+                zs.append(i+(j-i)*factor)
+        z = torch.cat(zs, 0)
+        recon = model.decode(z)
 
-    result = torch.cat(result, 0)
-    torchvision.utils.save_image(result.data, '../imgs/trans.jpg', nrow=2+numsample, padding=2)
+        it1 = iter(data.split(1))
+        it2 = [iter(recon.split(1))]*numsample
+        result = zip(it1, it1, *it2)
+        result = [im for item in result for im in item]
+
+        result = torch.cat(result, 0)
+        torchvision.utils.save_image(result.data, '../imgs/trans.jpg', nrow=2+numsample, padding=2)
 
 
 def rand_faces(num=5):
@@ -284,7 +310,7 @@ def rand_faces(num=5):
 
 def load_last_model():
     models = glob('../models/*.pth')
-    model_ids = [(int(f.split('_')[1]), f) for f in models]
+    model_ids = [(int(f.split('_')[2]), f) for f in models]
     start_epoch, last_cp = max(model_ids, key=lambda item:item[0])
     print('Last checkpoint: ', last_cp)
     model.load_state_dict(torch.load(last_cp))
@@ -296,7 +322,8 @@ def resume_training():
     for epoch in range(start_epoch + 1, start_epoch + args.epochs + 1):
         train_loss = train(epoch)
         test_loss = test(epoch)
-        torch.save(model.state_dict(), '../models/Epoch_{}_Train_loss_{:.4f}_Test_loss_{:.4f}.pth'.format(epoch, train_loss, test_loss))
+        torch.save(model.state_dict(), \
+            f'../models/Epoch_{epoch}_Train_loss_{train_loss:.4f}_Test_loss_{test_loss:.4f}.pth')
 
 def last_model_to_cpu():
     _, last_cp = load_last_model()
@@ -304,7 +331,30 @@ def last_model_to_cpu():
     torch.save(model.state_dict(), '../models/cpu_'+last_cp.split('/')[-1])
 
 if __name__ == '__main__':
-    resume_training()
+    #resume_training()
+
+    img_dir = '../data/test'
+    if not os.path.exists(img_dir): os.makedirs(img_dir)
+
+    ### TEST
+    if args.test == 0:
+        if not any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
+            #w = IMGWriter(device=device, isplain_test=True)
+            w = TestSimple(device)
+            w.write()
+
+        start_epoch, last_cp = load_last_model()
+        test(start_epoch)
+    
+    ### TRANSPOSE
+    if args.test == 1:
+        if any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
+            t = Transition(device)
+            images_list = t.return_pair_list()
+            images_list = images_list[:25]
+            latent_space_transition(images_list)
+
+
     # last_model_to_cpu()
     # load_last_model()
     # rand_faces(10)
