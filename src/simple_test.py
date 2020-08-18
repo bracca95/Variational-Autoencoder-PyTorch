@@ -11,7 +11,7 @@ from PIL import Image
 from tqdm import tqdm
 
 class TestSimple:
-	def __init__(self, device):
+	def __init__(self, device, istrain):
 		""" init
 
 		if isplain_test == True the program performs plain testing,
@@ -20,7 +20,12 @@ class TestSimple:
 
 		self.device = device
 		self.full_name_list = None			# type list from df
-		self.new_path = '../data/test'
+		self.istrain = istrain
+
+		if self.istrain:
+			self.new_path = '../data/train'
+		else:
+			self.new_path = '../data/test'
 
 
 	def read(self):
@@ -38,7 +43,8 @@ class TestSimple:
 
 		df = pd.read_csv(csv_path)
 
-		filt = (df['partition'] == 2)
+		if self.istrain: 	filt = (df['partition'] == 0)
+		else: 				filt = (df['partition'] == 2)
 		df_test = df.loc[filt]
 
 		name_list = df_test['image_id'].to_list()

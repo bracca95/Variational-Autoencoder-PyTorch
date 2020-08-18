@@ -42,24 +42,28 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-train_loader = range(2080)
+#train_loader = range(2080)
+train_loader = range(1269) # 162770/128 n_images/batch_l
 test_loader = range(40)
 
 totensor = transforms.ToTensor()
 def load_batch(batch_idx, istrain):
     if istrain:
-        template = '../data/train/%s.jpg'
+        images_path = '../data/train'
     else:
-        template = '../data/test/%s.jpg'
-    #l = [str(batch_idx*128 + i).zfill(6) for i in range(128)]
+        images_path = '../data/test'
+
     l = []
-    images_path = '../data/test'
     name_list = os.listdir(images_path)
     for i in range(len(name_list)):
-        if i >= 0 and i < 128:
-            idx = (128*batch_idx)+i
-            name_list[idx]
-            l.append(os.path.join(images_path, name_list[idx]))
+
+        try:
+            if i >= 0 and i < 128:
+                idx = (128*batch_idx)+i
+                name_list[idx]
+                l.append(os.path.join(images_path, name_list[idx]))
+        except IndexError:
+            print(len(name_list), idx)
     
     data = []
     for im in l:
@@ -200,13 +204,13 @@ def train(epoch):
         recon_batch, mu, logvar = model(data)
         loss = loss_function(recon_batch, data, mu, logvar)
         loss.backward()
-        train_loss += loss.data[0]
+        train_loss += loss.item()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), (len(train_loader)*128),
                 100. * batch_idx / len(train_loader),
-                loss.data[0] / len(data)))
+                loss.item() / len(data)))
 
     print('====> Epoch: {} Average loss: {:.4f}'.format(
           epoch, train_loss / (len(train_loader)*128)))
@@ -289,13 +293,25 @@ def latent_space_transition(items):
         z = torch.cat(zs, 0)
         recon = model.decode(z)
 
+        # iterators
         it1 = iter(data.split(1))
         it2 = [iter(recon.split(1))]*numsample
         result = zip(it1, it1, *it2)
         result = [im for item in result for im in item]
+        
+        # get hr, lr, and the latest sr. good_idx ~ [0, 1, -1]
+        # https://stackoverflow.com/a/3179119
+        l = numsample+2
+        good_idx = []
+        for i in range(len(items)):
+            good_idx.append(i*l)
+            good_idx.append((i*l)+1)
+            good_idx.append(l*(i+1)-1)
+        
+        result = [result[i] for i in good_idx]
 
         result = torch.cat(result, 0)
-        torchvision.utils.save_image(result.data, '../imgs/trans.jpg', nrow=2+numsample, padding=2)
+        torchvision.utils.save_image(result.data, '../imgs/trans.jpg', nrow=2+1, padding=2)
 
 
 def rand_faces(num=5):
@@ -330,29 +346,38 @@ def last_model_to_cpu():
     model.cpu()
     torch.save(model.state_dict(), '../models/cpu_'+last_cp.split('/')[-1])
 
+
+### MAIN
 if __name__ == '__main__':
-    #resume_training()
 
-    img_dir = '../data/test'
-    if not os.path.exists(img_dir): os.makedirs(img_dir)
-
-    ### TEST
-    if args.test == 0:
-        if not any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
-            #w = IMGWriter(device=device, isplain_test=True)
-            w = TestSimple(device)
-            w.write()
-
-        start_epoch, last_cp = load_last_model()
-        test(start_epoch)
+    train_dir = '../data/train'
+    if not os.path.exists(train_dir): os.makedirs(train_dir) 
     
-    ### TRANSPOSE
-    if args.test == 1:
-        if any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
-            t = Transition(device)
-            images_list = t.return_pair_list()
-            images_list = images_list[:25]
-            latent_space_transition(images_list)
+    if not any(fname.endswith('.jpg') for fname in os.listdir(train_dir)):
+        w = TestSimple(device, istrain=True)
+        w.write()
+
+    resume_training()
+
+    # img_dir = '../data/test'
+    # if not os.path.exists(img_dir): os.makedirs(img_dir)
+
+    # ### TEST
+    # if args.test == 0:
+    #     if not any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
+    #         #w = IMGWriter(device=device, isplain_test=True)
+    #         w = TestSimple(device)
+    #         w.write()
+
+    #     start_epoch, last_cp = load_last_model()
+    #     test(start_epoch)
+    
+    # ### TRANSPOSE
+    # if args.test == 1:
+    #     t = Transition(device)
+    #     images_list = t.return_pair_list()
+    #     images_list = images_list[:25]
+    #     latent_space_transition(images_list)
 
 
     # last_model_to_cpu()
