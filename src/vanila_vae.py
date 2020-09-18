@@ -15,63 +15,50 @@ from torch.autograd import Variable
 from torchvision import datasets, transforms
 from glob import glob
 from util import *
+from torch.utils.data import DataLoader
 
+from dataloader import CelebDataSet
 from simple_test import TestSimple
 from transit_test import Transition
 
 parser = argparse.ArgumentParser(description='PyTorch VAE')
-parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+parser.add_argument('--batch_size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 20)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
-                    help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
-parser.add_argument('--log-interval', type=int, default=1, metavar='N',
+parser.add_argument('--log_interval', type=int, default=1, metavar='N',
                     help='n batches to wait before logging training status')
 parser.add_argument('--test', type=int, default=0,
                     help='type of test: 0 = simple, 1 = transition')
-
 args = parser.parse_args()
-args.cuda = not args.no_cuda and torch.cuda.is_available()
+
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 torch.manual_seed(args.seed)
-if args.cuda:
-    torch.cuda.manual_seed(args.seed)
+if device.type == 'cuda': torch.cuda.manual_seed(args.seed)
 
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
-#train_loader = range(2080)
-train_loader = range(1269) # 162770/128 n_images/batch_l
-test_loader = range(40)
+kwargs = {'num_workers': 1, 'pin_memory': True} if device.type == 'cuda' else {}
 
 totensor = transforms.ToTensor()
-def load_batch(batch_idx, istrain):
-    if istrain:
-        images_path = '../data/train'
-    else:
-        images_path = '../data/test'
 
-    l = []
-    name_list = os.listdir(images_path)
-    for i in range(len(name_list)):
+train_dataset = CelebDataSet(state='train', data_aug=False, rgb=1)
+test_dataset = CelebDataSet(state='test', data_aug=False, rgb=1)
 
-        try:
-            if i >= 0 and i < 128:
-                idx = (128*batch_idx)+i
-                name_list[idx]
-                l.append(os.path.join(images_path, name_list[idx]))
-        except IndexError:
-            print(len(name_list), idx)
-    
-    data = []
-    for im in l:
-        img = Image.open(im)
-        data.append(np.array(img))
-    data = [totensor(i) for i in data]
-    return torch.stack(data, dim=0)
+train_loader = DataLoader(train_dataset,
+                        batch_size=args.batch_size,
+                        num_workers=1,
+                        pin_memory=True,
+                        shuffle=True)
 
+test_loader = DataLoader(test_dataset,
+                        batch_size=args.batch_size,
+                        num_workers=1,
+                        pin_memory=True,
+                        shuffle=False)
+
+# test_dataset = CelebDataSet(state='test', rgb=1)
 
 class VAE(nn.Module):
     def __init__(self, nc, ngf, ndf, latent_variable_size):
@@ -144,7 +131,7 @@ class VAE(nn.Module):
 
     def reparametrize(self, mu, logvar):
         std = logvar.mul(0.5).exp_()
-        if args.cuda:
+        if device.type == 'cuda':
             eps = torch.cuda.FloatTensor(std.size()).normal_()
         else:
             eps = torch.FloatTensor(std.size()).normal_()
@@ -174,9 +161,7 @@ class VAE(nn.Module):
 
 
 model = VAE(nc=3, ngf=128, ndf=128, latent_variable_size=500)
-
-if args.cuda:
-    model.cuda()
+model.to(device)
 
 reconstruction_function = nn.BCELoss()
 reconstruction_function.size_average = False
@@ -195,11 +180,8 @@ optimizer = optim.Adam(model.parameters(), lr=1e-4)
 def train(epoch):
     model.train()
     train_loss = 0
-    for batch_idx in train_loader:
-        data = load_batch(batch_idx, True)
-        data = Variable(data)
-        if args.cuda:
-            data = data.cuda()
+    for batch_idx, target_img in enumerate(train_loader):
+        data = Variable(target_img).to(device)
         optimizer.zero_grad()
         recon_batch, mu, logvar = model(data)
         loss = loss_function(recon_batch, data, mu, logvar)
@@ -221,17 +203,19 @@ def test(epoch):
     test_loss = 0
 
     with torch.no_grad():
-        for batch_idx in test_loader:
-            data = load_batch(batch_idx, False)
-            data = Variable(data)
-            if args.cuda:
-                data = data.cuda()
+        for batch_idx, target_img in enumerate(test_loader):
+            data = Variable(target_img).to(device)
             recon_batch, mu, logvar = model(data)
             test_loss += loss_function(recon_batch, data, mu, logvar).item()
 
-            torchvision.utils.save_image(data.data, \
+            ### EDIT HERE
+            # must de-normalize images
+            first_img = data.data.double()
+            second_img = recon_batch.data.double()
+
+            torchvision.utils.save_image(0.5*first_img+0.5, \
                 f'../imgs/Epoch_{epoch}_data.jpg', nrow=8, padding=2)
-            torchvision.utils.save_image(recon_batch.data, \
+            torchvision.utils.save_image(0.5*second_img+0.5, \
                 f'../imgs/Epoch_{epoch}_recon.jpg', nrow=8, padding=2)
 
         test_loss /= (len(test_loader)*128)
@@ -242,31 +226,31 @@ def test(epoch):
 def perform_latent_space_arithmatics(items):
     # input is list of tuples of 3 [(a1,b1,c1), (a2,b2,c2)]
     load_last_model()
-    model.eval()
-    data = [im for item in items for im in item]
-    data = [totensor(i) for i in data]
-    data = torch.stack(data, dim=0)
-    data = Variable(data, volatile=True)
-    if args.cuda:
-        data = data.cuda()
-    z = model.get_latent_var(data.view(-1, model.nc, model.ndf, model.ngf))
-    it = iter(z.split(1))
-    z = zip(it, it, it)
-    zs = []
-    numsample = 11
-    for i,j,k in z:
-        for factor in np.linspace(0,1,numsample):
-            zs.append((i-j)*factor+k)
-    z = torch.cat(zs, 0)
-    recon = model.decode(z)
 
-    it1 = iter(data.split(1))
-    it2 = [iter(recon.split(1))]*numsample
-    result = zip(it1, it1, it1, *it2)
-    result = [im for item in result for im in item]
+    with torch.no_grad():
+        model.eval()
+        data = [im for item in items for im in item]
+        data = [totensor(i) for i in data]
+        data = torch.stack(data, dim=0)
+        data = Variable(data).to(device)
+        z = model.get_latent_var(data.view(-1, model.nc, model.ndf, model.ngf))
+        it = iter(z.split(1))
+        z = zip(it, it, it)
+        zs = []
+        numsample = 11
+        for i,j,k in z:
+            for factor in np.linspace(0,1,numsample):
+                zs.append((i-j)*factor+k)
+        z = torch.cat(zs, 0)
+        recon = model.decode(z)
 
-    result = torch.cat(result, 0)
-    torchvision.utils.save_image(result.data, '../imgs/vec_math.jpg', nrow=3+numsample, padding=2)
+        it1 = iter(data.split(1))
+        it2 = [iter(recon.split(1))]*numsample
+        result = zip(it1, it1, it1, *it2)
+        result = [im for item in result for im in item]
+
+        result = torch.cat(result, 0)
+        torchvision.utils.save_image(result.data, '../imgs/vec_math.jpg', nrow=3+numsample, padding=2)
 
 
 def latent_space_transition(items): 
@@ -279,9 +263,7 @@ def latent_space_transition(items):
     print(data.shape)
 
     with torch.no_grad():
-        data = Variable(data)
-        if args.cuda:
-            data = data.cuda()
+        data = Variable(data).to(device)
         z = model.get_latent_var(data.view(-1, model.nc, model.ndf, model.ngf))
         it = iter(z.split(1))
         z = zip(it, it)
@@ -316,13 +298,13 @@ def latent_space_transition(items):
 
 def rand_faces(num=5):
     load_last_model()
-    model.eval()
-    z = torch.randn(num*num, model.latent_variable_size)
-    z = Variable(z, volatile=True)
-    if args.cuda:
-        z = z.cuda()
-    recon = model.decode(z)
-    torchvision.utils.save_image(recon.data, '../imgs/rand_faces.jpg', nrow=num, padding=2)
+
+    with torch.no_grad():
+        model.eval()
+        z = torch.randn(num*num, model.latent_variable_size)
+        z = Variable(z).to(device)
+        recon = model.decode(z)
+        torchvision.utils.save_image(recon.data, '../imgs/rand_faces.jpg', nrow=num, padding=2)
 
 def load_last_model():
     models = glob('../models/*.pth')
