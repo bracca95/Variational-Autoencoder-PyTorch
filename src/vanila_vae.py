@@ -198,6 +198,7 @@ def test(epoch):
 
     with torch.no_grad():
         for batch_idx, target_img in enumerate(test_loader):
+            print(batch_idx)
             data = Variable(target_img).to(device)
             recon_batch, mu, logvar = model(data)
             test_loss += loss_function(recon_batch, data, mu, logvar).item()
@@ -207,10 +208,10 @@ def test(epoch):
             first_img = data.data.double()
             second_img = recon_batch.data.double()
 
-            torchvision.utils.save_image(0.5*first_img+0.5, \
-                f'../imgs/Epoch_{epoch}_data.jpg', nrow=8, padding=2)
-            torchvision.utils.save_image(0.5*second_img+0.5, \
-                f'../imgs/Epoch_{epoch}_recon.jpg', nrow=8, padding=2)
+            torchvision.utils.save_image(first_img, \
+                f'../imgs/ney_{batch_idx}_og.jpg', nrow=8, padding=2)
+            torchvision.utils.save_image(second_img, \
+                f'../imgs/ney_{batch_idx}_recon.jpg', nrow=8, padding=2)
 
         test_loss /= (len(test_loader)*128)
         print('====> Test set loss: {:.4f}'.format(test_loss))
