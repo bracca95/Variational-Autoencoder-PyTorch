@@ -1,10 +1,12 @@
+import os
 import pandas as pd
 import sys
 import torchvision.transforms as transforms
 from torch.utils.data.dataset import Dataset
-from os.path import join
 from PIL import Image
 from transformations import Transformations
+
+accept_ext = ('.jpg', '.jpeg', '.png')
 
 class CelebDataSet(Dataset):
 	"""CelebA Dataset"""
@@ -26,7 +28,7 @@ class CelebDataSet(Dataset):
 
 		## INIT
 		self.state = state
-		self.main_path = datapath
+		self.main_path = os.path.abspath(os.path.expanduser(datapath))
 		self.RGB = rgb
 
 		# Enable data augmentation only if training. The user can decide to
@@ -37,34 +39,16 @@ class CelebDataSet(Dataset):
 			self.data_aug = False
 
 		## PATHS TO IMAGES
-		self.img_fold = join(self.main_path, 'img_align_celeba')
-		self.eval_file = join(self.main_path, 'list_eval_partition.csv')
+		file_list = os.listdir(self.main_path)
+		self.img_list = []
 
-		## READ THE CSV
-		df_eval = pd.read_csv(self.eval_file)
+		for file in file_list:
+			if file.endswith(accept_ext):
+				self.img_list.append(os.path.join(self.main_path, file))
 
-		## FILTERS
-		filt_train = (df_eval['partition'] == 0)
-		filt_test = (df_eval['partition'] == 2)
-
-		## DATASETS FOR TRAINING AND TESTING
-		df_train = df_eval.loc[filt_train]
-		df_test = df_eval.loc[filt_test]
-
-		## FILL LIST ACCORDING TO TRAIN/TEST PHASE
-		if self.state == 'train':
-			# define image list
-			self.img_list = df_train['image_id'].to_list()
-
-		if state == 'test':
-			# define image list
-			self.img_list = df_test['image_id'].to_list()
 
 		## DEFINE PRE-PROC ACCORDING TO INPUT
 		self.transf = Transformations(self.data_aug, self.RGB)
-
-		# debug
-		del filt_train, filt_test, df_eval, df_train, df_test
 
 
 	def __getitem__(self, index):
@@ -74,7 +58,7 @@ class CelebDataSet(Dataset):
 		"""
 
 		# strings
-		img_path = join(self.img_fold, self.img_list[index])
+		img_path = self.img_list[index]
 
 		# open image and make it tensor
 		target = self.transf.perform(img_path)

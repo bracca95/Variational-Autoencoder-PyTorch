@@ -22,7 +22,7 @@ from simple_test import TestSimple
 from transit_test import Transition
 
 parser = argparse.ArgumentParser(description='PyTorch VAE')
-parser.add_argument('--batch_size', type=int, default=128, metavar='N',
+parser.add_argument('--batch_size', type=int, default=1, metavar='N',
                     help='input batch size for training (default: 128)')
 parser.add_argument('--epochs', type=int, default=20, metavar='N',
                     help='number of epochs to train (default: 20)')
@@ -43,14 +43,8 @@ kwargs = {'num_workers': 1, 'pin_memory': True} if device.type == 'cuda' else {}
 
 totensor = transforms.ToTensor()
 
-train_dataset = CelebDataSet(state='train', data_aug=False, rgb=1)
+#train_dataset = CelebDataSet(state='train', data_aug=False, rgb=1)
 test_dataset = CelebDataSet(state='test', data_aug=False, rgb=1)
-
-train_loader = DataLoader(train_dataset,
-                        batch_size=args.batch_size,
-                        num_workers=1,
-                        pin_memory=True,
-                        shuffle=True)
 
 test_loader = DataLoader(test_dataset,
                         batch_size=args.batch_size,
@@ -332,27 +326,27 @@ def last_model_to_cpu():
 ### MAIN
 if __name__ == '__main__':
 
-    train_dir = '../data/train'
-    if not os.path.exists(train_dir): os.makedirs(train_dir) 
+    # train_dir = '../data/train'
+    # if not os.path.exists(train_dir): os.makedirs(train_dir) 
     
-    if not any(fname.endswith('.jpg') for fname in os.listdir(train_dir)):
-        w = TestSimple(device, istrain=True)
-        w.write()
+    # if not any(fname.endswith('.jpg') for fname in os.listdir(train_dir)):
+    #     w = TestSimple(device, istrain=True)
+    #     w.write()
 
-    resume_training()
+    # resume_training()
 
     # img_dir = '../data/test'
     # if not os.path.exists(img_dir): os.makedirs(img_dir)
 
-    # ### TEST
-    # if args.test == 0:
-    #     if not any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
-    #         #w = IMGWriter(device=device, isplain_test=True)
-    #         w = TestSimple(device)
-    #         w.write()
+    ### TEST
+    if args.test == 0:
+        # if not any(fname.endswith('.jpg') for fname in os.listdir(img_dir)):
+        #     #w = IMGWriter(device=device, isplain_test=True)
+        #     w = TestSimple(device)
+        #     w.write()
 
-    #     start_epoch, last_cp = load_last_model()
-    #     test(start_epoch)
+        start_epoch, last_cp = load_last_model()
+        test(start_epoch)
     
     # ### TRANSPOSE
     # if args.test == 1:

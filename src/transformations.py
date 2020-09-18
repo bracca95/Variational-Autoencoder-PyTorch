@@ -45,8 +45,6 @@ class Transformations:
 		# this shall be your benchmark
 		if self.RGB == 0: target_image = Image.open(image_path).convert('L')
 		else: target_image = Image.open(image_path).convert('RGB')
-		
-		target_image = self.pre_process(target_image)
 
 		# normalize all images
 		target_image = self.totensor(target_image)
